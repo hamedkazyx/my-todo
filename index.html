@@ -70,10 +70,22 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
 .hl li{padding:10px 0;border-bottom:1px solid var(--line);font-size:15px}
 .hl time{display:block;color:var(--mute);font-size:12px;margin-top:2px}
 @media (prefers-reduced-motion:reduce){.toast{transition:none}}
+
+[hidden]{display:none!important}
+.seg{display:flex;gap:4px;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:4px;margin-bottom:18px}
+.seg button{flex:1;padding:9px 0;border-radius:12px;color:var(--mute);font-weight:600;font-size:15px}
+.seg button.on{background:var(--ink);color:var(--bg)}
+.jr{width:100%;min-height:46vh;margin-top:20px;resize:vertical;font:inherit;font-size:17px;line-height:1.9;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:16px}
+.jr::placeholder,.add textarea::placeholder{color:var(--mute)}
+.jst{color:var(--mute);font-size:13px;margin-top:8px;min-height:20px}
+.add textarea{flex:1;min-width:0;font:inherit;font-size:16px;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:13px 14px;resize:none}
+.idea{display:flex;gap:12px;align-items:flex-start;padding:14px 2px;border-bottom:1px solid var(--line)}
+.idea time{display:block;color:var(--mute);font-size:12px;margin-top:3px}
 </style>
 </head>
 <body>
 <div class="app">
+  <nav class="seg" id="seg"><button data-t="tasks" class="on">کارها</button><button data-t="journal">ژورنال</button><button data-t="ideas">ایده‌ها</button></nav>
   <div class="top">
     <div>
       <h1 class="date" id="date"></h1>
@@ -87,11 +99,21 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
   </div>
   <div class="scroller months" id="months"></div>
   <div class="scroller days" id="days"></div>
+  <div class="pane" id="p-tasks">
   <div class="add">
     <input id="inp" type="text" placeholder="چی باید انجام بشه؟" enterkeyhint="done" autocomplete="off">
     <button id="addb">اضافه کن</button>
   </div>
   <ul class="list" id="list"></ul>
+  </div>
+  <div class="pane" id="p-journal" hidden>
+    <textarea class="jr" id="jr" placeholder="امروز چطور بود؟ هر چی تو ذهنته بنویس."></textarea>
+    <div class="jst" id="jst"></div>
+  </div>
+  <div class="pane" id="p-ideas" hidden>
+    <div class="add"><textarea id="idin" rows="2" placeholder="یه ایده بنویس"></textarea><button id="idadd">اضافه کن</button></div>
+    <ul class="list" id="idlist"></ul>
+  </div>
 </div>
 <div class="toast" id="toast" role="status"></div>
 <dialog id="dlg">
@@ -118,13 +140,13 @@ function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2
 var S;
 try{S=JSON.parse(localStorage.getItem(KEY))}catch(e){S=null}
 if(!S||typeof S!=="object")S={};
-S.tasks=S.tasks||{};S.log=S.log||[];S.undo=S.undo||[];S.sent=S.sent||{};
+S.tasks=S.tasks||{};S.log=S.log||[];S.undo=S.undo||[];S.sent=S.sent||{};S.journal=S.journal||{};S.ideas=S.ideas||[];var tab="tasks";
 function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
 
 var sel=iso(new Date());
 var $=function(i){return document.getElementById(i)};
 
-function snap(){S.undo.push(JSON.stringify(S.tasks));if(S.undo.length>30)S.undo.shift()}
+function snap(){S.undo.push(JSON.stringify({tasks:S.tasks,ideas:S.ideas}));if(S.undo.length>30)S.undo.shift()}
 function log(a,t,day){S.log.unshift({ts:Date.now(),a:a,t:t,day:day});if(S.log.length>200)S.log.length=200}
 function list(day){return S.tasks[day]||(S.tasks[day]=[])}
 function clean(){Object.keys(S.tasks).forEach(function(k){if(!S.tasks[k].length)delete S.tasks[k]})}
@@ -158,7 +180,7 @@ function render(){
   var first=addDays(d,-(p.d-1)),D=$("days");D.replaceChildren();
   for(var i=0,c=first;i<31;i++,c=addDays(c,1)){
     var q=fp(c);if(q.m!==p.m)break;
-    var k=iso(c),b=document.createElement("button"),has=(S.tasks[k]||[]).some(function(t){return!t.done});
+    var k=iso(c),b=document.createElement("button"),has=tab==="journal"?!!S.journal[k]:(S.tasks[k]||[]).some(function(t){return!t.done});
     b.className="dy"+(k===sel?" on":"")+(k===todayI?" today":"")+(has?" has":"");
     b.innerHTML="<small>"+WS[c.getDay()]+"</small><b>"+fa(q.d)+"</b><i></i>";
     b.setAttribute("aria-label",fa(q.d)+" "+MN[q.m-1]);
@@ -183,6 +205,7 @@ function render(){
     li.append(ck,tx,rm);L.appendChild(li);
   });
   $("undo").disabled=!S.undo.length;
+  paneState();
   bellState();
 }
 
@@ -196,16 +219,16 @@ $("inp").addEventListener("keydown",function(e){if(e.key==="Enter"){e.preventDef
 
 $("undo").onclick=function(){
   if(!S.undo.length)return;
-  S.tasks=JSON.parse(S.undo.pop());log("undo","آخرین تغییر",sel);save();render();toast("برگشت");
+  var o=JSON.parse(S.undo.pop());if(o&&o.tasks){S.tasks=o.tasks;S.ideas=o.ideas||[]}else S.tasks=o;log("undo","آخرین تغییر",sel);save();render();toast("برگشت");
 };
 
-var AL={add:"اضافه شد",done:"انجام شد",undone:"دوباره باز شد",del:"حذف شد",undo:"برگشت"};
+var AL={add:"اضافه شد",done:"انجام شد",undone:"دوباره باز شد",del:"حذف شد",undo:"برگشت",idea_add:"ایده اضافه شد",idea_del:"ایده حذف شد"};
 $("hist").onclick=function(){
   var H=$("hl");H.replaceChildren();
   if(!S.log.length){var e=document.createElement("li");e.textContent="هنوز چیزی ثبت نشده.";H.appendChild(e)}
   S.log.forEach(function(l){
     var li=document.createElement("li"),p=fp(dt(l.day));
-    li.textContent=AL[l.a]+": "+l.t+(l.a!=="undo"?" (برای "+fa(p.d)+" "+MN[p.m-1]+")":"");
+    li.textContent=AL[l.a]+": "+l.t+(l.a!=="undo"&&l.a.indexOf("idea")!==0?" (برای "+fa(p.d)+" "+MN[p.m-1]+")":"");
     var t=document.createElement("time");
     t.textContent=new Date(l.ts).toLocaleString("fa-IR-u-ca-persian",{month:"long",day:"numeric",hour:"2-digit",minute:"2-digit"});
     li.appendChild(t);H.appendChild(li);
@@ -245,6 +268,33 @@ try{
   var a=document.createElement("link");a.rel="apple-touch-icon";a.href=ic;document.head.appendChild(a);
 }catch(e){}
 
+
+function paneState(){
+  ["tasks","journal","ideas"].forEach(function(n){$("p-"+n).hidden=n!==tab});
+  $("months").hidden=$("days").hidden=tab==="ideas";
+  document.querySelectorAll("#seg button").forEach(function(b){b.classList.toggle("on",b.dataset.t===tab)});
+  if(tab==="journal"){var d=dt(sel);$("sub").textContent=WF[d.getDay()]+"، "+fa(fp(d).y)+"، ژورنال";$("jr").value=S.journal[sel]||"";$("jst").textContent=""}
+  if(tab==="ideas"){$("date").textContent="ایده‌ها";$("sub").textContent=S.ideas.length?fa(S.ideas.length)+" ایده":"هر ایده‌ای داری همین‌جا نگه دار";renderIdeas()}
+}
+function renderIdeas(){
+  var L=$("idlist");L.replaceChildren();
+  if(!S.ideas.length){var e=document.createElement("li");e.className="empty";e.textContent="هنوز ایده‌ای ننوشتی. هر چی به ذهنت رسید بنویس.";L.appendChild(e)}
+  S.ideas.forEach(function(x){
+    var li=document.createElement("li");li.className="idea";
+    var box=document.createElement("div");box.className="tx";
+    var tx=document.createElement("span");tx.style.whiteSpace="pre-wrap";tx.textContent=x.t;
+    var tm=document.createElement("time");tm.textContent=new Date(x.ts).toLocaleDateString("fa-IR-u-ca-persian",{month:"long",day:"numeric"});
+    box.append(tx,tm);
+    var rm=document.createElement("button");rm.className="rm";rm.textContent="×";rm.setAttribute("aria-label","حذف");
+    rm.onclick=function(){snap();S.ideas=S.ideas.filter(function(y){return y!==x});log("idea_del",x.t,iso(new Date()));save();render();toast("حذف شد. با دکمه برگشت پسش بیار.")};
+    li.append(box,rm);L.appendChild(li);
+  });
+}
+function addIdea(){var v=$("idin").value.trim();if(!v)return;snap();S.ideas.unshift({id:uid(),t:v,ts:Date.now()});log("idea_add",v,iso(new Date()));save();$("idin").value="";render()}
+$("idadd").onclick=addIdea;
+var jt;$("jr").addEventListener("input",function(){var v=this.value;S.journal[sel]=v;if(!v.trim())delete S.journal[sel];$("jst").textContent="در حال ذخیره…";clearTimeout(jt);jt=setTimeout(function(){save();$("jst").textContent="ذخیره شد"},400)});
+window.addEventListener("pagehide",save);
+document.querySelectorAll("#seg button").forEach(function(b){b.onclick=function(){tab=b.dataset.t;render()}});
 render();checkNotify();
 })();
 </script>
